@@ -9,14 +9,14 @@
 import Cocoa
 
 class AppDelegate: NSObject, NSApplicationDelegate {
-                            
     @IBOutlet weak var window: NSWindow!
+    
     @IBOutlet weak var dataTextField: NSTextField!
     @IBOutlet weak var countTextField: NSTextField!
 
     var data: UInt64 = 0
     var uiUpdateCount: UInt64 = 0
-    var uiTimer: NSTimer? = nil
+    var uiUpdateTimer: NSTimer? = nil
     
     /* 
         How often to update the UI, in seconds.
@@ -28,44 +28,39 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var updateInterval: NSTimeInterval = 0.1
     
     // Create a serial queue for synchronized data access
-    let dataAccessQueue = dispatch_queue_create("fastUIUpdates.dataAccessQueue", DISPATCH_QUEUE_SERIAL)
+    let dataAccessQueue = dispatch_queue_create("uiUpdateTimerExample.dataAccessQueue", DISPATCH_QUEUE_SERIAL)
     
     func startup() {
-        // Fire off an infinite while loop to update our data on a background thread
+        // Start an infinite while loop to update our data on a background thread
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0)) {
-            [weak self] in // Make sure we don't create a strong reference cycle
+            /*
+                Make sure self is marked as weak so that we don't create a strong reference cycle.
+                See: https://developer.apple.com/library/prerelease/ios/documentation/Swift/Conceptual/Swift_Programming_Language/AutomaticReferenceCounting.html#//apple_ref/doc/uid/TP40014097-CH20-XID_100
+                Note: self will now be an optional, so could be nil.
+            */
+            [weak self] in
 
             while (true) {
                 /*
-                    Dispatch an data update synchronously to the dataAccessQueue.
-                    Since dataAccessQueue is serial, it'll only run one code block at
-                    a time, in the order they're received. If we do all read and writes
-                    to our data in the dataAccessQueue, there won't be any data
-                    contention issues.
+                    Use optional chaining to make sure the self.updateData() function can still be called.
+                    See: https://developer.apple.com/library/prerelease/ios/documentation/Swift/Conceptual/Swift_Programming_Language/OptionalChaining.html#//apple_ref/doc/uid/TP40014097-CH21-XID_361
                 */
-                dispatch_sync(self?.dataAccessQueue) {
-                    [weak self] in // Make sure we don't create a strong reference cycle
-                    
-                    // Our "data update" is just incrementing a counter
-                    self?.data += 1
-                    
-                    /*
-                        Since this closure only has one expression in it, we have to explicitly return.
-                        Otherwise we'll run in to problems with swift's "Implicit Returns from Single-Expression Closures"
-                        https://developer.apple.com/library/prerelease/ios/documentation/Swift/Conceptual/Swift_Programming_Language/Closures.html#//apple_ref/doc/uid/TP40014097-CH11-XID_158
-                    */
-                    return
-                }
+                self?.updateData()
             }
         }
         
         // Start the UI update timer on the main queue
         dispatch_async(dispatch_get_main_queue()) {
-            [weak self] in // Make sure we don't create a strong reference cycle
+            [weak self] in
             
             // Start the UI update timer; calls updateUI() once every updateInterval
-            self?.uiTimer = NSTimer.scheduledTimerWithTimeInterval(self!.updateInterval, target: self!, selector: "updateUI", userInfo: nil, repeats: true)
+            self?.uiUpdateTimer = NSTimer.scheduledTimerWithTimeInterval(self!.updateInterval, target: self!, selector: "updateUI", userInfo: nil, repeats: true)
             
+            /*
+                Since this closure only has one expression in it, we have to explicitly return.
+                Otherwise we'll run in to problems with Swift's "Implicit Returns from Single-Expression Closures"
+                See: https://developer.apple.com/library/prerelease/ios/documentation/Swift/Conceptual/Swift_Programming_Language/Closures.html#//apple_ref/doc/uid/TP40014097-CH11-XID_158
+            */
             return
         }
     }
@@ -73,9 +68,27 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func shutdown() {
         // Stop and release the UI update timer on the main queue
         dispatch_async(dispatch_get_main_queue()) {
-            [weak self] in // Make sure we don't create a strong reference cycle
-            self?.uiTimer?.invalidate()
-            self?.uiTimer = nil
+            [weak self] in
+            self?.uiUpdateTimer?.invalidate()
+            self?.uiUpdateTimer = nil
+        }
+    }
+    
+    func updateData() {
+        /*
+            Dispatch a data update synchronously to the dataAccessQueue.
+            Since dataAccessQueue is serial, it'll only run one code block at
+            a time, in the order they're received. If we do all read and writes
+            to our data in the dataAccessQueue, there shouldn't be any data
+            contention issues.
+        */
+        dispatch_sync(self.dataAccessQueue) {
+            [weak self] in
+            
+            // Our "data update" is just incrementing a counter
+            self?.data += 1
+            
+            return
         }
     }
     
@@ -84,7 +97,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         // Dispatch the data read synchronously to the dataAccessQueue
         dispatch_sync(dataAccessQueue) {
-            [weak self] in // Make sure we don't create a strong reference cycle
+            [weak self] in
             self?.dataTextField.stringValue = "\(self!.data)" // Update the data update count label
             return
         }
